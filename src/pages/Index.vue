@@ -92,89 +92,116 @@ export default {
       });
     },
     createSale(itemId) {
-      const domainData = {
-        name: 'My amazing dApp',
-        version: '2',
-        chainId: 4,
-        verifyingContract: '0x43162023C187662684abAF0b211dCCB96fa4eD8a',
-        salt: '0x0000000000000000000000000000000000000000000000000000000000000601',
-      };
-      const domain = [
-        { name: 'name', type: 'string' },
-        { name: 'version', type: 'string' },
-        { name: 'chainId', type: 'uint256' },
-        { name: 'verifyingContract', type: 'address' },
-        { name: 'salt', type: 'bytes32' },
-      ];
-      const bid = [
-        { name: 'amount', type: 'uint256' },
-        { name: 'bidder', type: 'Identity' },
-      ];
-      const identity = [
-        { name: 'userId', type: 'uint256' },
-        { name: 'wallet', type: 'address' },
-      ];
+       const bidTypes = {
+          bid: [
+            { name: 'amount', type: 'uint256' },
+            { name: 'bidder', type: 'Identity' },
+          ],
+          identity: [
+            { name: 'userId', type: 'uint256' },
+            { name: 'wallet', type: 'address' },
+          ],
+        };
 
-      const sale = JSON.stringify({
-        type: 'RARIBLE_V2',
-        maker: this.$API.userAccount[0],
-        make: {
-          assetType: {
-            '@type': 'ERC721',
-            token: '0x25646B08D9796CedA5FB8CE0105a51820740C049',
-            tokenId: itemId,
+        const DOMAIN_TYPE = [
+          {
+            type: 'string',
+            name: 'name',
           },
-          value: 1,
-        },
-        take: {
-          assetType: {
-            assetClass: 'ETH',
+          {
+            type: 'string',
+            name: 'version',
           },
-          value: 100000000,
-        },
-        salt: '0x0000000000000000000000000000000000000000000000000000000000000601',
-        start: 0,
-        end: 0,
-        data: {
+          {
+            type: 'uint256',
+            name: 'chainId',
+          },
+          {
+            type: 'address',
+            name: 'verifyingContract',
+          },
+        ];
+
+        const client = axios.create({ baseURL: 'https://api-staging.rarible.com' });
+
+        const getEncoderData = async (data) => {
+          const res = await client.post('protocol/ethereum/order/indexer/v0.1/encoder/data', data);
+          return res.data;
+        };
+
+        const encodedData = await getEncoderData({
           dataType: 'LEGACY',
           fee: 0.5,
-        },
-      });
-
-      const data = JSON.stringify({
-        types: {
-          EIP712Domain: domain,
-          Bid: bid,
-          Identity: identity,
-        },
-        domain: domainData,
-        primaryType: 'Bid',
-        message: sale,
-      });
-      const from = this.$API.userAccount[0];
-      this.$API.web3.currentProvider.sendAsync({
-        method: 'eth_signTypedData_v3',
-        params: [from, data],
-        from,
-      // eslint-disable-next-line consistent-return
-      }, (err, result) => {
-        if (err) {
-          return console.error(err);
-        }
-        const signature = result.result.substring(2);
-        const r = `0x${signature.substring(0, 64)}`;
-        const s = `0x${signature.substring(64, 128)}`;
-        const v = parseInt(signature.substring(128, 130), 16);
-        console.log(r, s, v);
-        const saleSigned = JSON.parse(sale);
-        saleSigned.signature = `0x${signature}`;
-        console.log(saleSigned);
-        this.$axios.post('http://api-staging.rarible.com/protocol/v0.1/ethereum/order/orders', saleSigned).then((results) => {
-          console.log(results);
-        }).catch((error) => {
-          console.log(error);
         });
-      });
+
+        const sale = {
+          type: 'RARIBLE_V2',
+          maker: this.$API.userAccount[0],
+          make: {
+            assetType: {
+              '@type': 'ERC721',
+              token: '0x25646B08D9796CedA5FB8CE0105a51820740C049',
+              tokenId: itemId,
+            },
+            value: 1,
+          },
+          take: {
+            assetType: {
+              assetClass: 'ETH',
+            },
+            value: 100000000,
+          },
+          start: '0',
+          end: '0',
+          data: encodedData.data,
+          dataType: encodedData.type,
+          salt: '0x0000000000000000000000000000000000000000000000000000000000000601',
+        };
+
+        const data = {
+          types: { EIP712Domain: DOMAIN_TYPE, ...bidTypes },
+          domain: {
+            name: 'My amazing dApp',
+            version: '2',
+            chainId: 4,
+            verifyingContract: '0x43162023C187662684abAF0b211dCCB96fa4eD8a',
+            salt: '0x0000000000000000000000000000000000000000000000000000000000000601',
+          },
+          primaryType: 'Bid',
+          message: sale,
+        };
+
+        const msgData = JSON.stringify(data);
+
+        const cb = (err, response) => {
+          if (err || response.error) console.error(err);
+          else {
+            const sig = response.result;
+            const sig0 = sig.substring(2);
+            const r = `0x${sig0.substring(0, 64)}`;
+            const s = `0x${sig0.substring(64, 128)}`;
+            const v = parseInt(sig0.substring(128, 130), 16);
+
+            console.log(r, s, v);
+
+            const saleSigned = JSON.parse(sale);
+            saleSigned.signature = `0x${sig}`;
+
+            console.log(saleSigned);
+
+            this.$axios.post('http://api-staging.rarible.com/protocol/v0.1/ethereum/order/orders', saleSigned).then((results) => {
+              console.log(results);
+            }).catch((error) => {
+              console.log(error);
+            });
+          }
+        };
+
+        this.$API.web3.currentProvider.sendAsync({
+          method: 'eth_signTypedData_v3',
+          params: [this.$API.userAccount[0], msgData],
+          from: this.$API.userAccount[0],
+        }, cb);
     },
   },
 };
